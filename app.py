@@ -1,77 +1,13 @@
-from celery import Celery
 from flask import Flask, request
 from werkzeug.utils import secure_filename
 
 import os
-from requests import Request, Session
-import urllib.parse as urlparse
-from urllib.parse import urlencode
 import uuid
 
-
-UPLOAD_FOLDER = '/tmp/apimux'
-METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD']
-ENDPOINTS = (
-    'http://localhost:8000/',
-    #'http://localhost:8001/'
-)
-
+from config.config import METHODS, UPLOAD_FOLDER, ENDPOINTS
+from .app_celery import send_apimux
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-
-def make_celery(app):
-    celery = Celery(
-        app.import_name,
-        backend=app.config['result_backend'],
-        broker=app.config['CELERY_BROKER_URL']
-    )
-    celery.conf.update(app.config)
-
-    class ContextTask(celery.Task):
-        def __call__(self, *args, **kwargs):
-            with app.app_context():
-                return self.run(*args, **kwargs)
-
-    celery.Task = ContextTask
-    return celery
-
-
-flask_app = Flask(__name__)
-flask_app.config.update(
-    CELERY_BROKER_URL='redis://localhost:6379',
-    result_backend='redis://localhost:6379',
-)
-celery = make_celery(flask_app)
-
-
-@celery.task()
-def send_apimux(endpoint, id, method, path, args, form, files):
-
-    # add args to endpoint URL
-    # https://stackoverflow.com/a/2506477
-    url_parts = list(urlparse.urlparse(endpoint + path))
-    query = dict(urlparse.parse_qsl(url_parts[4]))
-    query.update(args)
-    url_parts[4] = urlencode(query)
-    url = urlparse.urlunparse(url_parts)
-
-    upload_files = []
-    for key, file in files:
-        head, tail = os.path.split(file)
-        upload_files.append(
-            (key, (tail, open(file, 'rb')))
-        )
-
-    sess = Session()
-    req = Request(method, url, data=form, files=files)
-    prepped = req.prepare()
-    resp = sess.send(prepped)
-    return resp.status_code
-
-    #return "--ENDPOINT-- {} --METHOD-- {} --PATH-- {} --ARGS-- {} --FORM-- {} --FILES-- {}".format(endpoint, 
-    #    method, path,  args,  form, files)
 
 
 @app.route("/", defaults={"path": ""}, methods=METHODS)
@@ -88,16 +24,25 @@ def apimux(path):
     """
     id = uuid.uuid4()
 
+    # Save uploaded files locally, send a dictionary of uploaded files
     files = []
     if request.method in ['POST', 'PUT', 'PATCH']:
         for key in request.files.keys():
             for file in request.files.getlist(key):
-                directory = '{}/{}'.format(app.config['UPLOAD_FOLDER'], id)
+                directory = '{}/{}'.format(UPLOAD_FOLDER, id)
                 os.makedirs(directory, exist_ok=True)
                 filename = secure_filename(file.filename)
                 location = os.path.join(directory, filename)
                 file.save(location)
-                files.append((key, location))
+                files.append([key, location])
+
+    # Copy headers from the request, but ignore the Host and Content-Length
+    # headers as they will be set later when rebuilding the request.
+    headers = {}
+    for key, value in request.headers:
+        # Ignore these headers
+        if key not in ['Host', 'Content-Length', 'Content-Type']:
+            headers[key] = value
 
     first_endpoint = None
     for endpoint in ENDPOINTS:
@@ -105,9 +50,10 @@ def apimux(path):
                 endpoint=endpoint,
                 id=id,
                 method=request.method,
+                headers=headers,
                 path=path,
                 args=request.args,
-                form=request.form,
+                form=request.form.to_dict(),
                 files=files,
         )
         if not first_endpoint:
