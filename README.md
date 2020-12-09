@@ -11,8 +11,16 @@
      \/__/         \/__/       \/__/       \/__/         \/__/         |/__/     
 ```
 
-APIMUX is a simple flask app used to broadcast a HTTP request to multiple endpoints. Useful for sending the same data from one API to several, if you're doing weird 
+APIMUX is a simple flask app used to broadcast a HTTP request to multiple endpoints. Useful for sending the same data from one API to several endpoints at the same time.
 
+Caveats currently:
+
+- No retries on the celery job. If your request to an endpoint fails, it's gone.
+- No error reporting. Do it server side on your endpoints.
+- Likely bugs with relaying header information, content types, form parameters with the same name, and other oddities.
+- File uploads are stored by default at `/tmp/apimux`. Guess what? You'll probably want a cronjob or a celery task after a request completes or something to clean them out.
+
+This app was developed to relay remote camera images to multiple API's at the same time.
 
 ### Development Env
 
