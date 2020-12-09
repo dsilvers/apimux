@@ -5,7 +5,7 @@ import os
 import uuid
 
 from config.config import METHODS, UPLOAD_FOLDER, ENDPOINTS
-from .app_celery import send_apimux
+from app_celery import send_apimux
 
 app = Flask(__name__)
 
@@ -60,3 +60,7 @@ def apimux(path):
             first_endpoint = result
 
     return str(first_endpoint.wait())
+
+
+if __name__ == "__main__":
+    app.run()
