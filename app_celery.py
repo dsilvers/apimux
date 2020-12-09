@@ -5,7 +5,7 @@ from requests import Request, Session
 import urllib.parse as urlparse
 from urllib.parse import urlencode
 
-from  config.config import CELERY_BROKER_URL, RESULT_BACKEND
+from config.config import CELERY_BROKER_URL, RESULT_BACKEND
 
 
 def make_celery(app):
@@ -53,4 +53,4 @@ def send_apimux(endpoint, id, method, headers, path, args, form, files):
     req = Request(method, url, data=form, headers=headers, files=upload_files)
     prepped = sess.prepare_request(req)
     resp = sess.send(prepped)
-    return resp.status_code
+    return resp.content
